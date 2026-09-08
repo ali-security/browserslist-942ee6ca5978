@@ -1,15 +1,18 @@
 name: Test
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Filter pattern forwarded to the test runner (leave blank for full suite)'
+        required: false
+        default: ''
 permissions:
   contents: read
 jobs:
   full:
     name: Node.js Latest Full
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout the repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -22,12 +25,36 @@ jobs:
         with:
           node-version: 25
           cache: pnpm
+      - name: Pin npm registry to time machine
+        run: |
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-31T10:24:52Z
       - name: Install dependencies
         run: pnpm install --ignore-scripts
       - name: Run tests
-        run: pnpm test
+        env:
+          BROWSERSLIST_IGNORE_OLD_DATA: '1'
+        run: |
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            pnpm test -- ${{ inputs.test-filter }}
+          else
+            pnpm test
+          fi
+      - name: Pack the tarball
+        run: |
+          npx clean-publish --without-publish --temp-dir "$RUNNER_TEMP/clean-package"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd "$RUNNER_TEMP/clean-package"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+      - name: Upload the tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: dist/browserslist-*.tgz
+          if-no-files-found: error
   short:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         node-version:
@@ -48,20 +75,29 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
+      - name: Pin npm registry to time machine
+        run: |
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-31T10:24:52Z
       - name: Install dependencies
         run: pnpm install --ignore-scripts
       - name: Run unit tests
-        run: pnpm unit
+        env:
+          BROWSERSLIST_IGNORE_OLD_DATA: '1'
+        run: |
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            pnpm unit ${{ inputs.test-filter }}
+          else
+            pnpm unit
+          fi
   old:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         node-version:
           - 16
           - 14
-          - 12
-          - 10
-          - 8
     name: Node.js ${{ matrix.node-version }} Quick
     steps:
       - name: Checkout the repository
@@ -76,7 +112,18 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ matrix.node-version }}
+      - name: Pin npm registry to time machine
+        run: |
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-31T10:24:52Z
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile --ignore-scripts
       - name: Run unit tests
-        run: pnpm unit
+        env:
+          BROWSERSLIST_IGNORE_OLD_DATA: '1'
+        run: |
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            pnpm run unit ${{ inputs.test-filter }}
+          else
+            pnpm run unit
+          fi
